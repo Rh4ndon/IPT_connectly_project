@@ -13,14 +13,14 @@ Connectly Project is a web application project for the course Integrative Progra
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/Rh4ndon/task_management_project.git
+   git clone https://github.com/Rh4ndon/IPT_connectly_project.git
 
    ```
 
 2. Navigate to the project directory:
 
    ```bash
-    cd task_management_project
+    cd IPT_connectly_project
 
    ```
 
