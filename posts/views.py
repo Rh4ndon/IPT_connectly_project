@@ -142,10 +142,6 @@ def logout_view(request):
         token_key = auth_header.split('Token ')[1]
         
         try:
-            token = Token.objects.get(key=token_key)
-            token.delete()  # Delete the token to log out the user
-            
-            # Token was deleted successfully, now clear the session
             if request.user.is_authenticated:
                 logout(request)  # This clears the session
             
