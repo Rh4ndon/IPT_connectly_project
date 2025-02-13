@@ -11,7 +11,11 @@ class ConfigManager:
         self.settings = {
             "DEFAULT_PAGE_SIZE": 20,
             "ENABLE_ANALYTICS": True,
-            "RATE_LIMIT": 100
+            "RATE_LIMIT": 100,
+            "DEFAULT_TEXT_METADATA": {
+                "font_style": "Arial",
+                "text_color": "#000000"
+            }
         }
 
     def get_setting(self, key):

@@ -1,8 +1,8 @@
-from .models import Post
+from ..models import Post
 
 class PostFactory:
     @staticmethod
-    def create_post(post_type, title, content='', metadata=None):
+    def create_post(author,post_type, title, content='', metadata=None):
         if post_type not in dict(Post.POST_TYPES):
             raise ValueError("Invalid post type")
 
@@ -12,6 +12,7 @@ class PostFactory:
             raise ValueError("Video posts require 'duration' in metadata")
 
         return Post.objects.create(
+            author=author,
             title=title,
             content=content,
             post_type=post_type,

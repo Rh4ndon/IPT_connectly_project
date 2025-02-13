@@ -18,12 +18,16 @@ from .permissions import IsPostAuthor
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect
 from django.contrib.auth import authenticate, login, logout
-from .post_factory import PostFactory
+from .factory.post_factory import PostFactory
+from .factory.comment_factory import CommentFactory
+from .logger_singleton import LoggerSingleton
+from .config_manager import ConfigManager
 
 
 # Index View
 def index(request):
     return render(request, 'index.html')
+
 # Sign Up View
 def sign_up(request):
     return render(request, 'sign-up.html')
@@ -44,10 +48,6 @@ def home(request):
         'comments': comments
     })
 
-
-
-
-
 # Get users
 def get_users(request):
     try:
@@ -55,7 +55,7 @@ def get_users(request):
         return JsonResponse(users, safe=False)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
-    
+
 # Get posts
 def get_posts(request):
     try:
@@ -95,49 +95,57 @@ def get_posts(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 
- # Login
+# Login
 @csrf_exempt
 def login_view(request):
+    logger = LoggerSingleton().get_logger()
     if request.method == 'POST':
-            try:
-                data = json.loads(request.body)
-                username = data.get('username')
-                password = data.get('password')
+        try:
+            data = json.loads(request.body)
+            username = data.get('username')
+            password = data.get('password')
 
-                if not username or not password:
-                    return JsonResponse({'error': 'Username and password are required'}, status=400)
+            if not username or not password:
+                logger.warning("Username and password are required for login.")
+                return JsonResponse({'error': 'Username and password are required'}, status=400)
 
-                user = authenticate(request, username=username, password=password)
-                if user:
-                    # Create or retrieve token
-                    token, created = Token.objects.get_or_create(user=user)
-                    
-                    # Log in the user (for session-based authentication)
-                    login(request, user)
+            user = authenticate(request, username=username, password=password)
+            if user:
+                # Create or retrieve token
+                token, created = Token.objects.get_or_create(user=user)
+                
+                # Log in the user (for session-based authentication)
+                login(request, user)
 
-                    # Return both token and session info
-                    return JsonResponse({
-                        'message': 'Login successful',
-                        'token': token.key,
-                        'user': user.username,
-                        'id': user.id,
-                        'email': user.email
-                    }, status=200)
-                else:
-                    return JsonResponse({'error': 'Invalid username or password'}, status=400)
+                logger.info(f"User {username} logged in successfully.")
+                # Return both token and session info
+                return JsonResponse({
+                    'message': 'Login successful',
+                    'token': token.key,
+                    'user': user.username,
+                    'id': user.id,
+                    'email': user.email
+                }, status=200)
+            else:
+                logger.warning(f"Invalid login attempt for username: {username}")
+                return JsonResponse({'error': 'Invalid username or password'}, status=400)
 
-            except json.JSONDecodeError:
-                return JsonResponse({'error': 'Invalid JSON format'}, status=400)
+        except json.JSONDecodeError:
+            logger.error("Invalid JSON format in login request.")
+            return JsonResponse({'error': 'Invalid JSON format'}, status=400)
 
     return JsonResponse({'error': 'Invalid request method'}, status=405)
+
 # Logout
 @csrf_exempt
 def logout_view(request):
+    logger = LoggerSingleton().get_logger()
     if request.method == 'POST':
         # Handle token-based logout first
         auth_header = request.META.get('HTTP_AUTHORIZATION')
         
         if not auth_header or not auth_header.startswith('Token '):
+            logger.warning("Authorization header with token is required for logout.")
             return JsonResponse({'error': 'Authorization header with token is required'}, status=400)
         
         token_key = auth_header.split('Token ')[1]
@@ -149,17 +157,17 @@ def logout_view(request):
             # Token was deleted successfully, now clear the session
             if request.user.is_authenticated:
                 logout(request)  # This clears the session
+                logger.info(f"User {request.user.username} logged out successfully.")
             
             return JsonResponse({'message': 'Logout successful, token and session cleared'}, status=200)
         
         except Token.DoesNotExist:
             # Token is invalid, don't log out the session
+            logger.warning("Invalid token provided for logout.")
             return JsonResponse({'error': 'Invalid token'}, status=401)
     
     # If no valid token and no valid request method
     return JsonResponse({'error': 'Invalid request method'}, status=405)
-
-
 
 # User API
 class UserListCreate(APIView):
@@ -193,7 +201,6 @@ class UserListCreate(APIView):
                 'code': status.HTTP_201_CREATED
             }
         )
-
 
     def put(self, request, pk):
         try:
@@ -262,60 +269,83 @@ class PostListCreate(APIView):
                 })
 
     def post(self, request):
+        logger = LoggerSingleton().get_logger()
         data = request.data
+        if 'post_type' not in data or 'title' not in data or 'content' not in data:
+            logger.error("Post type, title, and content are required.")
+            return Response(
+                {
+                    'status': 'failure',
+                    'errors': 'Post type, title, and content are required',
+                    'code': status.HTTP_400_BAD_REQUEST
+                }
+            )
+        
+        # Set default metadata if post_type is "text" and metadata is not provided
+        if data['post_type'] == 'text' and 'metadata' not in data:
+            config_manager = ConfigManager()
+            data['metadata'] = config_manager.get_setting("DEFAULT_TEXT_METADATA")
+        
         try:
             post = PostFactory.create_post(
+                author=request.user,
                 post_type=data['post_type'],
                 title=data['title'],
                 content=data.get('content', ''),
                 metadata=data.get('metadata', {})
             )
             post.save()
-            serializer = self.serializer_class(post)
+            serializer = PostSerializer(post)
+            logger.info(f"Post created successfully by user {request.user}.")
             return Response({'message': 'Post created successfully!', 'post_id': post.id, 'data': serializer.data}, status=status.HTTP_201_CREATED)
         except ValueError as e:
+            logger.error(f"Error creating post: {str(e)}")
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     def put(self, request, pk):
-            try:
-                post = Post.objects.get(pk=pk)
-            except Post.DoesNotExist:
-                return Response(
-                    {
-                        'status': 'failure',
-                        'error': 'Post not found',
+        logger = LoggerSingleton().get_logger()
+        try:
+            post = Post.objects.get(pk=pk)
+        except Post.DoesNotExist:
+            logger.error(f"Post with id {pk} not found.")
+            return Response(
+                {
+                    'status': 'failure',
+                    'error': 'Post not found',
                     'code': status.HTTP_404_NOT_FOUND
                 }
             )
         
         # Check if the authenticated user is the author
-            if post.author != request.user:
-                return Response(
-                    {
-                        'status': 'failure',
-                        'error': 'You are not authorized to edit this post',
-                        'code': status.HTTP_403_FORBIDDEN
-                    }
-                )
-
-            serializer = PostSerializer(post, data=request.data, partial=True)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(
-                    {
-                        'status': 'success',
-                        'post': serializer.data,
-                        'code': status.HTTP_200_OK
-                    }
-                )
+        if post.author != request.user:
+            logger.warning(f"User {request.user} is not authorized to edit post {pk}.")
             return Response(
                 {
                     'status': 'failure',
-                    'errors': serializer.errors,
-                    'code': status.HTTP_400_BAD_REQUEST
+                    'error': 'You are not authorized to edit this post',
+                    'code': status.HTTP_403_FORBIDDEN
                 }
             )
 
+        data = request.data
+        post = PostFactory.create_post(
+            author=request.user,
+            post_type=data['post_type'],
+            title=data['title'],
+            content=data.get('content', ''),
+            metadata=data.get('metadata', {})
+        )
+        post.id = pk  # Ensure the post ID remains the same
+        post.save()
+        serializer = PostSerializer(post)
+        logger.info(f"Post {pk} updated successfully by user {request.user}.")
+        return Response(
+            {
+                'status': 'success',
+                'post': serializer.data,
+                'code': status.HTTP_200_OK
+            }
+        )
 
     def delete(self, request, pk):
         try:
@@ -352,6 +382,7 @@ class PostListCreate(APIView):
 class CommentListCreate(APIView):
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
+
     def get(self, request):
         comments = Comment.objects.all()
         serializer = CommentSerializer(comments, many=True)
@@ -363,23 +394,93 @@ class CommentListCreate(APIView):
             })
 
     def post(self, request):
-        serializer = CommentSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
+        data = request.data
+        if 'post_id' not in data or 'text' not in data:
+            return Response(
+                {
+                    'status': 'failure',
+                    'errors': 'Post ID and text are required',
+                    'code': status.HTTP_400_BAD_REQUEST
+                }
+            )
+        try:
+            post = Post.objects.get(pk=data['post_id'])
+            comment = CommentFactory.create_comment(
+                author=request.user,
+                post=post,
+                text=data['text']
+            )
+            comment.save()
+            serializer = CommentSerializer(comment)
             return Response(
                 {
                     'status': 'success',
                     'comment': serializer.data,
                     'code': status.HTTP_201_CREATED
                 })
-        return Response(
-            {
-                'status': 'failure',
-                'errors': serializer.errors,
-                'code': status.HTTP_400_BAD_REQUEST
-            })
+        except Post.DoesNotExist:
+            return Response(
+                {
+                    'status': 'failure',
+                    'error': 'Post not found',
+                    'code': status.HTTP_404_NOT_FOUND
+                }
+            )
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     def put(self, request, pk):
+        logger = LoggerSingleton().get_logger()
+        try:
+            comment = Comment.objects.get(pk=pk)
+        except Comment.DoesNotExist:
+            logger.error(f"Comment with id {pk} not found.")
+            return Response(
+                {
+                    'status': 'failure',
+                    'error': 'Comment not found',
+                    'code': status.HTTP_404_NOT_FOUND
+                }
+            )
+        
+        # Check if the authenticated user is the author of the comment
+        if comment.author != request.user:
+            logger.warning(f"User {request.user} is not authorized to edit comment {pk}.")
+            return Response(
+                {
+                    'status': 'failure',
+                    'error': 'You are not authorized to edit this comment',
+                    'code': status.HTTP_403_FORBIDDEN
+                }
+            )
+
+        data = request.data
+        if 'text' not in data:
+            logger.error("Text is required to update the comment.")
+            return Response(
+                {
+                    'status': 'failure',
+                    'errors': 'Text is required',
+                    'code': status.HTTP_400_BAD_REQUEST
+                }
+            )
+
+        try:
+            comment = CommentFactory.update_comment(comment, text=data['text'])
+            serializer = CommentSerializer(comment)
+            logger.info(f"Comment {pk} updated successfully by user {request.user}.")
+            return Response(
+                {
+                    'status': 'success',
+                    'comment': serializer.data,
+                    'code': status.HTTP_200_OK
+                }
+            )
+        except ValueError as e:
+            logger.error(f"Error updating comment {pk}: {str(e)}")
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
         try:
             comment = Comment.objects.get(pk=pk)
         except Comment.DoesNotExist:
@@ -396,50 +497,10 @@ class CommentListCreate(APIView):
             return Response(
                 {
                     'status': 'failure',
-                    'error': 'You are not authorized to edit this comment',
-                    'code': status.HTTP_403_FORBIDDEN
-                }
-            )
-
-        serializer = CommentSerializer(comment, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(
-                {
-                    'status': 'success',
-                    'comment': serializer.data,
-                    'code': status.HTTP_200_OK
-                }
-            )
-        return Response(
-            {
-                'status': 'failure',
-                'errors': serializer.errors,
-                'code': status.HTTP_400_BAD_REQUEST
-            }
-        )
-
-    def delete(self, request, pk):
-        try:
-            comment = Comment.objects.get(pk=pk)
-        except Comment.DoesNotExist:
-            return Response(
-                {
-                    'status': 'failure',
-                        'error': 'Comment not found',
-                        'code': status.HTTP_404_NOT_FOUND
-                    }
-                )
-            
-        # Check if the authenticated user is the author of the comment
-        if comment.author != request.user:
-            return Response(
-                {
-                    'status': 'failure',
                     'error': 'You are not authorized to delete this comment',
                     'code': status.HTTP_403_FORBIDDEN
-                    }
-                )
+                }
+            )
 
         comment.delete()
         return Response(
@@ -447,5 +508,5 @@ class CommentListCreate(APIView):
                 'status': 'success',
                 'message': 'Comment deleted successfully',
                 'code': status.HTTP_204_NO_CONTENT
-                }
-            )
+            }
+        )
