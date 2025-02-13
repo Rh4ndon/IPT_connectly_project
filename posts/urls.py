@@ -7,12 +7,16 @@ urlpatterns = [
   
     # For Index
     path('', views.index, name='index'),
-    # For GET and POST users
+    # For GET users
     path('users/', UserListCreate.as_view(), name='user-list'), 
+    # For POST user
+    path('users/create/', UserListCreate.as_view(), name='user-create'),  
     # For PUT and DELETE users
     path('users/<int:pk>/', UserListCreate.as_view(), name='user-detail'),  
-    # For GET and POST posts
+    # For GET posts
     path('posts/', PostListCreate.as_view(), name='post-list'), 
+    # For POST posts
+    path('posts/create/', PostListCreate.as_view(), name='post-create'),
     # For PUT and DELETE posts
     path('posts/<int:pk>/', PostListCreate.as_view(), name='post-detail'),  
     # For GET and POST comments
