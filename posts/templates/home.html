@@ -104,6 +104,15 @@
 				});
 			  }
 
+			  // Check token on page load
+			  window.addEventListener('load', function() {
+				const token = localStorage.getItem('authToken');
+				if (!token) {
+				  alert('Please log in first');
+				  window.location.href = '/';
+				}
+			  })
+
 			  
 		</script>
 		<style type="text/tailwindcss">
