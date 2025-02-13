@@ -142,6 +142,10 @@ def logout_view(request):
         token_key = auth_header.split('Token ')[1]
         
         try:
+            #token = Token.objects.get(key=token_key)
+            #token.delete()  # Delete the token to log out the user
+            
+            # Token was deleted successfully, now clear the session
             if request.user.is_authenticated:
                 logout(request)  # This clears the session
             
@@ -149,7 +153,7 @@ def logout_view(request):
         
         except Token.DoesNotExist:
             # Token is invalid, don't log out the session
-            return JsonResponse({'error': 'Invalid token'}, status=404)
+            return JsonResponse({'error': 'Invalid token'}, status=401)
     
     # If no valid token and no valid request method
     return JsonResponse({'error': 'Invalid request method'}, status=405)
