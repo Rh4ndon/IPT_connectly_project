@@ -3,9 +3,11 @@ from django.db import models
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import User
 
-
 # Post model
 class Post(models.Model):
+    title = models.CharField(max_length=255)  # The title of the post
+    post_type = models.CharField(max_length=10, choices=[('text', 'Text'), ('image', 'Image'), ('video', 'Video')])  # The type of the post
+    metadata = models.JSONField(blank=True, null=True)  # Additional data for the post
     content = models.TextField()  # The text content of the post
     author = models.ForeignKey(User, on_delete=models.CASCADE)  # The user who created the post
     created_at = models.DateTimeField(auto_now_add=True)  # Timestamp when the post was created

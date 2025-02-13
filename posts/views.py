@@ -18,6 +18,7 @@ from .permissions import IsPostAuthor
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect
 from django.contrib.auth import authenticate, login, logout
+from .post_factory import PostFactory
 
 
 # Index View
@@ -261,21 +262,19 @@ class PostListCreate(APIView):
                 })
 
     def post(self, request):
-        serializer = PostSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(
-                {
-                    'status': 'success',
-                    'post': serializer.data,
-                    'code': status.HTTP_201_CREATED
-                })
-        return Response(
-            {
-                'status': 'failure',
-                'errors': serializer.errors,
-                'code': status.HTTP_400_BAD_REQUEST
-            })
+        data = request.data
+        try:
+            post = PostFactory.create_post(
+                post_type=data['post_type'],
+                title=data['title'],
+                content=data.get('content', ''),
+                metadata=data.get('metadata', {})
+            )
+            post.save()
+            serializer = self.serializer_class(post)
+            return Response({'message': 'Post created successfully!', 'post_id': post.id, 'data': serializer.data}, status=status.HTTP_201_CREATED)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     def put(self, request, pk):
             try:
