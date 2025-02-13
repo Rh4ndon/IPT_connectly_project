@@ -22,9 +22,9 @@ urlpatterns = [
     
     path('get_posts/', views.get_posts, name='get_posts'),
     # For login
-    path('login/', views.login, name='login'),
+    path('login/', views.login_view, name='login'),
     # For logout
-    path('logout/', views.logout, name='logout'),
+    path('logout/', views.logout_view, name='logout'),
     # For homepage
     path('home/', views.home, name='home'),
     # For signup

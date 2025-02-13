@@ -14,6 +14,11 @@ from rest_framework.authtoken.models import Token
 from django.db import IntegrityError
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.permissions import IsAuthenticated
+from .permissions import IsPostAuthor
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import redirect
+from django.contrib.auth import authenticate, login, logout
+
 
 # Index View
 def index(request):
@@ -24,7 +29,21 @@ def sign_up(request):
 
 # Index View
 def home(request):
-    return render(request, 'home.html')
+    if not request.user.is_authenticated:
+        return redirect('/')  # Redirect to login if not authenticated
+
+    # Get the logged-in user and all posts with comments
+    user = request.user
+    posts = Post.objects.all()
+    comments = Comment.objects.all()
+
+    return render(request, 'home.html', {
+        'user': user,
+        'posts': posts,
+        'comments': comments
+    })
+
+
 
 
 
@@ -75,46 +94,71 @@ def get_posts(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 
-# Login
+ # Login
 @csrf_exempt
-def login(request):
+def login_view(request):
     if request.method == 'POST':
-        try:
-            data = json.loads(request.body)
-            username = data.get('username')
-            password = data.get('password')
+            try:
+                data = json.loads(request.body)
+                username = data.get('username')
+                password = data.get('password')
 
-            if not username or not password:
-                return JsonResponse({'error': 'Username and password are required'}, status=400)
+                if not username or not password:
+                    return JsonResponse({'error': 'Username and password are required'}, status=400)
 
-            user = User.objects.get(username=username)
-            if check_password(password, user.password):
-                print(f"User found: {user}")  # Check if the user is valid
-                try:
+                user = authenticate(request, username=username, password=password)
+                if user:
+                    # Create or retrieve token
                     token, created = Token.objects.get_or_create(user=user)
-                    return JsonResponse({'message': 'Login successful', 'token': token.key}, status=200)
-                except IntegrityError as e:
-                    return JsonResponse({'error': 'Token creation failed due to an integrity error', 'details': str(e)}, status=500)
-            else:
-                return JsonResponse({'error': 'Invalid password'}, status=400)
+                    
+                    # Log in the user (for session-based authentication)
+                    login(request, user)
+
+                    # Return both token and session info
+                    return JsonResponse({
+                        'message': 'Login successful',
+                        'token': token.key,
+                        'user': user.username,
+                        'id': user.id,
+                        'email': user.email
+                    }, status=200)
+                else:
+                    return JsonResponse({'error': 'Invalid username or password'}, status=400)
+
+            except json.JSONDecodeError:
+                return JsonResponse({'error': 'Invalid JSON format'}, status=400)
+
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
+# Logout
+@csrf_exempt
+def logout_view(request):
+    if request.method == 'POST':
+        # Handle token-based logout first
+        auth_header = request.META.get('HTTP_AUTHORIZATION')
         
-        except User.DoesNotExist:
-            return JsonResponse({'error': 'User not found'}, status=404)
-        except json.JSONDecodeError:
-            return JsonResponse({'error': 'Invalid JSON format'}, status=400)
+        if not auth_header or not auth_header.startswith('Token '):
+            return JsonResponse({'error': 'Authorization header with token is required'}, status=400)
+        
+        token_key = auth_header.split('Token ')[1]
+        
+        try:
+            token = Token.objects.get(key=token_key)
+            token.delete()  # Delete the token to log out the user
+            
+            # Token was deleted successfully, now clear the session
+            if request.user.is_authenticated:
+                logout(request)  # This clears the session
+            
+            return JsonResponse({'message': 'Logout successful, token and session cleared'}, status=200)
+        
+        except Token.DoesNotExist:
+            # Token is invalid, don't log out the session
+            return JsonResponse({'error': 'Invalid token'}, status=404)
     
+    # If no valid token and no valid request method
     return JsonResponse({'error': 'Invalid request method'}, status=405)
 
-# Logout
-def logout(request):
-    if request.method == 'POST':
-        try:
-            token = request.data.get('token')
-            Token.objects.filter(key=token).delete()
-            return JsonResponse({'message': 'Logout successful'}, status=200)
-        except Token.DoesNotExist:
-            return JsonResponse({'error': 'Invalid token'}, status=400)
-    return JsonResponse({'error': 'Invalid request method'}, status=405)
+
 
 # User API
 class UserListCreate(APIView):
@@ -140,26 +184,12 @@ class UserListCreate(APIView):
                 }
             )
         
-        # Hash the password and print it
-        data['password'] = make_password(data['password'])  
-        print("Hashed password before saving:", data['password'])
-        
-        serializer = UserSerializer(data=data)
-        if serializer.is_valid():
-            user = serializer.save()
-            print("Saved user password:", user.password)  # Check what is saved in the DB
-            return Response(
-                {
-                    'status': 'success',
-                    'user': serializer.data,
-                    'code': status.HTTP_201_CREATED
-                }
-            )
+        user = User.objects.create_user(**data)
         return Response(
             {
-                'status': 'failure',
-                'errors': serializer.errors,
-                'code': status.HTTP_400_BAD_REQUEST
+                'status': 'success',
+                'user': UserSerializer(user).data,
+                'code': status.HTTP_201_CREATED
             }
         )
 
@@ -248,31 +278,45 @@ class PostListCreate(APIView):
             })
 
     def put(self, request, pk):
-        try:
-            post = Post.objects.get(pk=pk)
-        except Post.DoesNotExist:
-            return Response(
-                 {
-                    'status': 'failure',
-                    'error': 'Post not found',
+            try:
+                post = Post.objects.get(pk=pk)
+            except Post.DoesNotExist:
+                return Response(
+                    {
+                        'status': 'failure',
+                        'error': 'Post not found',
                     'code': status.HTTP_404_NOT_FOUND
-                 })
+                }
+            )
+        
+        # Check if the authenticated user is the author
+            if post.author != request.user:
+                return Response(
+                    {
+                        'status': 'failure',
+                        'error': 'You are not authorized to edit this post',
+                        'code': status.HTTP_403_FORBIDDEN
+                    }
+                )
 
-        serializer = PostSerializer(post, data=request.data, partial=True) 
-        if serializer.is_valid():
-            serializer.save()
+            serializer = PostSerializer(post, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(
+                    {
+                        'status': 'success',
+                        'post': serializer.data,
+                        'code': status.HTTP_200_OK
+                    }
+                )
             return Response(
                 {
-                    'status': 'success',
-                    'post': serializer.data,
-                    'code': status.HTTP_200_OK
-                })
-        return Response(
-            {
-                'status': 'failure',
-                'errors': serializer.errors,
-                'code': status.HTTP_400_BAD_REQUEST
-            })
+                    'status': 'failure',
+                    'errors': serializer.errors,
+                    'code': status.HTTP_400_BAD_REQUEST
+                }
+            )
+
 
     def delete(self, request, pk):
         try:
@@ -283,7 +327,18 @@ class PostListCreate(APIView):
                     'status': 'failure',
                     'error': 'Post not found',
                     'code': status.HTTP_404_NOT_FOUND
-                })
+                }
+            )
+        
+        # Check if the authenticated user is the author
+        if post.author != request.user:
+            return Response(
+                {
+                    'status': 'failure',
+                    'error': 'You are not authorized to delete this post',
+                    'code': status.HTTP_403_FORBIDDEN
+                }
+            )
 
         post.delete()
         return Response(
@@ -291,10 +346,13 @@ class PostListCreate(APIView):
                 'status': 'success',
                 'message': 'Post deleted successfully',
                 'code': status.HTTP_204_NO_CONTENT
-            })
+            }
+        )
 
 # Comment API
 class CommentListCreate(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
     def get(self, request):
         comments = Comment.objects.all()
         serializer = CommentSerializer(comments, many=True)
@@ -323,29 +381,6 @@ class CommentListCreate(APIView):
             })
 
     def put(self, request, pk):
-        
-        try:
-            comment = Comment.objects.get(pk=pk)
-        except Comment.DoesNotExist:
-            return Response({'error': 'Comment not found'}, status=status.HTTP_404_NOT_FOUND)
-
-        serializer = CommentSerializer(comment, data=request.data, partial=True)  
-        if serializer.is_valid():
-            serializer.save()
-            return Response(
-                {
-                    'status': 'success',
-                    'comment': serializer.data,
-                    'code': status.HTTP_200_OK
-                })
-        return Response(
-            {
-                'status': 'failure',
-                'errors': serializer.errors,
-                'code': status.HTTP_400_BAD_REQUEST
-            })
-
-    def delete(self, request, pk):
         try:
             comment = Comment.objects.get(pk=pk)
         except Comment.DoesNotExist:
@@ -354,8 +389,58 @@ class CommentListCreate(APIView):
                     'status': 'failure',
                     'error': 'Comment not found',
                     'code': status.HTTP_404_NOT_FOUND
-                })
-                    
+                }
+            )
+        
+        # Check if the authenticated user is the author of the comment
+        if comment.author != request.user:
+            return Response(
+                {
+                    'status': 'failure',
+                    'error': 'You are not authorized to edit this comment',
+                    'code': status.HTTP_403_FORBIDDEN
+                }
+            )
+
+        serializer = CommentSerializer(comment, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(
+                {
+                    'status': 'success',
+                    'comment': serializer.data,
+                    'code': status.HTTP_200_OK
+                }
+            )
+        return Response(
+            {
+                'status': 'failure',
+                'errors': serializer.errors,
+                'code': status.HTTP_400_BAD_REQUEST
+            }
+        )
+
+    def delete(self, request, pk):
+        try:
+            comment = Comment.objects.get(pk=pk)
+        except Comment.DoesNotExist:
+            return Response(
+                {
+                    'status': 'failure',
+                        'error': 'Comment not found',
+                        'code': status.HTTP_404_NOT_FOUND
+                    }
+                )
+            
+        # Check if the authenticated user is the author of the comment
+        if comment.author != request.user:
+            return Response(
+                {
+                    'status': 'failure',
+                    'error': 'You are not authorized to delete this comment',
+                    'code': status.HTTP_403_FORBIDDEN
+                    }
+                )
 
         comment.delete()
         return Response(
@@ -363,4 +448,5 @@ class CommentListCreate(APIView):
                 'status': 'success',
                 'message': 'Comment deleted successfully',
                 'code': status.HTTP_204_NO_CONTENT
-            })
+                }
+            )

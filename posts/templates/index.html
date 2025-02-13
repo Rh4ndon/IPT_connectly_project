@@ -51,15 +51,15 @@
 		<script>
 			function handleLogin(event) {
 				event.preventDefault(); // Prevent default form submission
-				
+			
 				const username = document.getElementById('username').value;
 				const password = document.getElementById('password').value;
-	
+			
 				const data = {
 					username: username,
 					password: password
 				};
-	
+			
 				// Send the POST request with the JSON data
 				fetch('/posts/login/', {
 					method: 'POST',
@@ -71,8 +71,12 @@
 				})
 				.then(response => response.json())
 				.then(data => {
-					if (data.message) {
+					if (data.token) {
 						alert('Login successful');
+						// Store the token in localStorage for future requests
+						localStorage.setItem('authToken', data.token);
+						// Store the userdata in localStorage for future requests
+						//localStorage.setItem('userData', JSON.stringify({username: data.user, id: data.id, email: data.email}));
 						// Redirect to the home page or dashboard
 						window.location.href = "/posts/home/";
 					} else {
@@ -83,6 +87,8 @@
 					console.error('Error:', error);
 				});
 			}
+
+	
 		</script>
 		<style type="text/tailwindcss">
 			@layer base {
