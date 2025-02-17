@@ -259,15 +259,39 @@ class PostListCreate(APIView):
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
-        posts = Post.objects.all()
-        serializer = PostSerializer(posts, many=True)
-        return Response(
+    def get(self, request, pk):
+        try:
+            post = Post.objects.get(pk=pk)
+            comments_count = Comment.objects.filter(post=post).count()
+            likes_count = Like.objects.filter(post=post).count()
+
+            post_data = {
+                'id': post.id,
+                'content': post.content,
+                'author': {
+                    'id': post.author.id,
+                    'username': post.author.username,
+                    'email': post.author.email                   
+                },
+                'created_at': post.created_at,
+                'comments_count': comments_count,
+                'likes_count': likes_count
+            }
+
+            return Response(
                 {
                     'status': 'success',
-                    'posts': serializer.data,
+                    'post': post_data,
                     'code': status.HTTP_200_OK
                 })
+        except Post.DoesNotExist:
+            return Response(
+                {
+                    'status': 'failure',
+                    'error': 'Post not found',
+                    'code': status.HTTP_404_NOT_FOUND
+                }
+            )
 
     def post(self, request):
         logger = LoggerSingleton().get_logger()
@@ -384,28 +408,38 @@ class CommentListCreate(APIView):
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
-        comments = Comment.objects.all()
-        serializer = CommentSerializer(comments, many=True)
-        return Response(
-            {
-                'status': 'success',
-                'comments': serializer.data,
-                'code': status.HTTP_200_OK
-            })
-
-    def post(self, request):
-        data = request.data
-        if 'post_id' not in data or 'text' not in data:
+    def get(self, request, pk):
+        try:
+            post = Post.objects.get(pk=pk)
+            comments = Comment.objects.filter(post=post)
+            serializer = CommentSerializer(comments, many=True)
+            return Response(
+                {
+                    'status': 'success',
+                    'comments': serializer.data,
+                    'code': status.HTTP_200_OK
+                })
+        except Post.DoesNotExist:
             return Response(
                 {
                     'status': 'failure',
-                    'errors': 'Post ID and text are required',
+                    'error': 'Post not found',
+                    'code': status.HTTP_404_NOT_FOUND
+                }
+            )
+
+    def post(self, request, pk):
+        data = request.data
+        if 'text' not in data:
+            return Response(
+                {
+                    'status': 'failure',
+                    'errors': 'Text is required',
                     'code': status.HTTP_400_BAD_REQUEST
                 }
             )
         try:
-            post = Post.objects.get(pk=data['post_id'])
+            post = Post.objects.get(pk=pk)
             comment = CommentFactory.create_comment(
                 author=request.user,
                 post=post,
@@ -526,19 +560,9 @@ class LikeListCreate(APIView):
                 'code': status.HTTP_200_OK
             })
     
-    def post(self, request):
-        data = request.data
-        if 'post_id' not in data:
-            return Response(
-                {
-                    'status': 'failure',
-                    'errors': 'Post ID is required',
-                    'code': status.HTTP_400_BAD_REQUEST
-                }
-            )
-        
+    def post(self, request, pk):
         try:
-            post = Post.objects.get(pk=data['post_id'])
+            post = Post.objects.get(pk=pk)
             like = LikeFactory.create_like(
                 author=request.user,
                 post=post

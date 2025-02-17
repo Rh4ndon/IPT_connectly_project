@@ -14,19 +14,21 @@ urlpatterns = [
     # For PUT and DELETE users
     path('users/<int:pk>/', UserListCreate.as_view(), name='user-detail'),  
     # For GET posts
-    path('posts/', PostListCreate.as_view(), name='post-list'), 
+    path('posts/<int:pk>/', PostListCreate.as_view(), name='post-list'),
     # For POST posts
     path('posts/create/', PostListCreate.as_view(), name='post-create'),
     # For PUT and DELETE posts
     path('posts/<int:pk>/', PostListCreate.as_view(), name='post-detail'),  
-    # For GET and POST comments
-    path('comments/', CommentListCreate.as_view(), name='comment-list'), 
+    # For GET comments
+    path('<int:pk>/comments/', CommentListCreate.as_view(), name='comment-list'),
+    # For POST comments
+    path('<int:pk>/comments/', CommentListCreate.as_view(), name='comment-create'),
     # For PUT and DELETE comments
     path('comments/<int:pk>/', CommentListCreate.as_view(), name='comment-detail'),  
     # For GET likes
     path('likes/', LikeListCreate.as_view(), name='like-list'),
     # For POST likes
-    path('likes/create/', LikeListCreate.as_view(), name='like-create'),
+    path('<int:pk>/likes/', LikeListCreate.as_view(), name='like-create'),
     # For PUT and DELETE likes
     path('likes/<int:pk>/', LikeListCreate.as_view(), name='like-detail'),
     
