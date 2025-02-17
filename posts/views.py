@@ -5,9 +5,9 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Post, Comment
+from .models import Post, Comment, Like
 from django.contrib.auth.models import User
-from .serializers import UserSerializer, PostSerializer, CommentSerializer
+from .serializers import UserSerializer, PostSerializer, CommentSerializer, LikeSerializer
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.hashers import check_password
 from rest_framework.authtoken.models import Token
@@ -20,6 +20,7 @@ from django.shortcuts import redirect
 from django.contrib.auth import authenticate, login, logout
 from .factory.post_factory import PostFactory
 from .factory.comment_factory import CommentFactory
+from .factory.like_factory import LikeFactory
 from .logger_singleton import LoggerSingleton
 from .config_manager import ConfigManager
 
@@ -507,6 +508,87 @@ class CommentListCreate(APIView):
             {
                 'status': 'success',
                 'message': 'Comment deleted successfully',
+                'code': status.HTTP_204_NO_CONTENT
+            }
+        )
+# Like API
+class LikeListCreate(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        likes = Like.objects.all()
+        serializer = LikeSerializer(likes, many=True)
+        return Response(
+            {
+                'status': 'success',
+                'likes': serializer.data,
+                'code': status.HTTP_200_OK
+            })
+    
+    def post(self, request):
+        data = request.data
+        if 'post_id' not in data:
+            return Response(
+                {
+                    'status': 'failure',
+                    'errors': 'Post ID is required',
+                    'code': status.HTTP_400_BAD_REQUEST
+                }
+            )
+        
+        try:
+            post = Post.objects.get(pk=data['post_id'])
+            like = LikeFactory.create_like(
+                author=request.user,
+                post=post
+            )
+            like.save()
+            serializer = LikeSerializer(like)
+            return Response(
+                {
+                    'status': 'success',
+                    'like': serializer.data,
+                    'code': status.HTTP_201_CREATED
+                })
+        except Post.DoesNotExist:
+            return Response(
+                {
+                    'status': 'failure',
+                    'error': 'Post not found',
+                    'code': status.HTTP_404_NOT_FOUND
+                }
+            )
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+    def delete(self, request, pk):
+        try:
+            like = Like.objects.get(pk=pk)
+        except Like.DoesNotExist:
+            return Response(
+                {
+                    'status': 'failure',
+                    'error': 'Like not found',
+                    'code': status.HTTP_404_NOT_FOUND
+                }
+            )
+        
+        # Check if the authenticated user is the author of the like
+        if like.author != request.user:
+            return Response(
+                {
+                    'status': 'failure',
+                    'error': 'You are not authorized to delete this like',
+                    'code': status.HTTP_403_FORBIDDEN
+                }
+            )
+
+        like.delete()
+        return Response(
+            {
+                'status': 'success',
+                'message': 'Like deleted successfully',
                 'code': status.HTTP_204_NO_CONTENT
             }
         )

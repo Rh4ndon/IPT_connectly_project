@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from .views import UserListCreate, PostListCreate, CommentListCreate
+from .views import UserListCreate, PostListCreate, CommentListCreate, LikeListCreate
 from rest_framework.authtoken.views import obtain_auth_token
 
 urlpatterns = [
@@ -23,6 +23,12 @@ urlpatterns = [
     path('comments/', CommentListCreate.as_view(), name='comment-list'), 
     # For PUT and DELETE comments
     path('comments/<int:pk>/', CommentListCreate.as_view(), name='comment-detail'),  
+    # For GET likes
+    path('likes/', LikeListCreate.as_view(), name='like-list'),
+    # For POST likes
+    path('likes/create/', LikeListCreate.as_view(), name='like-create'),
+    # For PUT and DELETE likes
+    path('likes/<int:pk>/', LikeListCreate.as_view(), name='like-detail'),
     
     path('get_posts/', views.get_posts, name='get_posts'),
     # For login
