@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from .views import UserListCreate, PostListCreate, CommentListCreate, LikeListCreate, GoogleLoginCallback
+from .views import UserListCreate, PostListCreate, CommentListCreate, LikeListCreate, NewsFeed
 from rest_framework.authtoken.views import obtain_auth_token
 from django.urls import include, path, re_path
 
@@ -47,6 +47,10 @@ urlpatterns = [
     
     # Token URL
     path('api-token-auth/', obtain_auth_token, name='api-token-auth'),
+    
+    # For News Feed
+    path('feed/', NewsFeed.as_view(), name='news_feed'),
+    
     
     
     

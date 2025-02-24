@@ -1,7 +1,7 @@
 import json
 from venv import logger
 from django.shortcuts import render
-from django.http import JsonResponse
+from django.http import HttpResponseRedirect, JsonResponse
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.views import APIView
@@ -78,15 +78,31 @@ class GoogleLoginCallback(APIView):
                 # Log the user in using Django's login() function
                 login(request, user)
 
-                # Generate tokens for your app (if using JWT)
-                tokens = get_tokens_for_user(user)
-                
-                # Logs the tokens for debugging
-                logger.info(f"Generated tokens: {tokens}")
-
+                # Generate a token for the user (for TokenAuthentication)
+                token, created = Token.objects.get_or_create(user=user)
                 # Redirect to the home page
-                return redirect('/posts/home/')                
+                #return redirect('/posts/home/')      
+                response = HttpResponseRedirect('/posts/home/')
 
+                # Set the token as a cookie
+                response.set_cookie('token', token.key)
+                return response         
+            
+                """
+                # I use this code for testing
+                # Return the token to the frontend
+                return Response({
+                    "token": token.key,
+                    "user_id": user.id,
+                    "email": user.email,
+                    "username": user.username,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "redirect_url": "/posts/home/",  # Add the redirect URL
+                }, status=status.HTTP_200_OK)
+                """
+               
+                
             else:
                 logger.error("Authentication failed: User not found or could not be created")
                 return Response({"error": "Authentication failed"}, status=status.HTTP_401_UNAUTHORIZED)
@@ -132,6 +148,7 @@ def home(request):
     comments = Comment.objects.all()
 
     return render(request, 'home.html', {
+        'token': request.COOKIES.get('token'),
         'user': user,
         'posts': posts,
         'comments': comments
@@ -281,6 +298,23 @@ class UserListCreate(APIView):
                     'code': status.HTTP_400_BAD_REQUEST
                 }
             )
+        if 'first_name' not in data:
+            return Response(
+                {
+                    'status': 'failure',
+                    'errors': 'First name is required',
+                    'code': status.HTTP_400_BAD_REQUEST
+                }
+            )
+        if 'last_name' not in data:
+            return Response(
+                {
+                    'status': 'failure',
+                    'errors': 'Last name is required',
+                    'code': status.HTTP_400_BAD_REQUEST
+                }
+            )
+        data['password'] = make_password(data['password'])
         
         user = User.objects.create_user(**data)
         return Response(
@@ -704,3 +738,90 @@ class LikeListCreate(APIView):
                 'code': status.HTTP_204_NO_CONTENT
             }
         )
+        
+# News Feed API
+class NewsFeed(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            # Get query parameters for pagination and filtering
+            page = int(request.GET.get('page', 1))
+            page_size = int(request.GET.get('page_size', 5))
+            liked_by_user = request.GET.get('liked_by_user', 'false').lower() == 'true'
+
+            # Get all posts or filter by posts liked by the user
+            if liked_by_user:
+                posts = Post.objects.filter(like__author=request.user).distinct()
+            else:
+                posts = Post.objects.all()
+
+            # Sort posts by creation date
+            posts = posts.order_by('-created_at')
+
+            # Paginate the results
+            start = (page - 1) * page_size
+            end = start + page_size
+            paginated_posts = posts[start:end]
+
+            posts_data = []
+            for post in paginated_posts:
+                comments_count = Comment.objects.filter(post=post).count()
+                likes_count = Like.objects.filter(post=post).count()
+
+                # Get author details
+                author = {
+                    'id': post.author.id,
+                    'username': post.author.username,
+                    'email': post.author.email,
+                    'first_name': post.author.first_name,
+                    'last_name': post.author.last_name
+                }
+
+                # Get comments with author details
+                comments = Comment.objects.filter(post=post)
+                comments_data = []
+                for comment in comments:
+                    comment_author = {
+                        'id': comment.author.id,
+                        'username': comment.author.username,
+                        'email': comment.author.email,
+                        'first_name': comment.author.first_name,
+                        'last_name': comment.author.last_name
+                    }
+                    comments_data.append({
+                        'id': comment.id,
+                        'text': comment.text,
+                        'author': comment_author,
+                        'created_at': comment.created_at
+                    })
+
+                post_data = {
+                    'id': post.id,
+                    'content': post.content,
+                    'author': author,
+                    'created_at': post.created_at,
+                    'comments_count': comments_count,
+                    'likes_count': likes_count,
+                    'comments': comments_data
+                }
+                posts_data.append(post_data)
+
+            return Response(
+                {
+                    'status': 'success',
+                    'posts': posts_data,
+                    'page': page,
+                    'page_size': page_size,
+                    'total_posts': posts.count(),
+                    'code': status.HTTP_200_OK
+                })
+        except Exception as e:
+            return Response(
+                {
+                    'status': 'failure',
+                    'error': str(e),
+                    'code': status.HTTP_500_INTERNAL_SERVER_ERROR
+                }
+            )

@@ -53,11 +53,15 @@
 				event.preventDefault(); // Prevent default form submission
 				
 				const username = document.getElementById('username').value;
+				const first_name = document.getElementById('first_name').value;
+				const last_name = document.getElementById('last_name').value;
                 const email = document.getElementById('email').value;
 				const password = document.getElementById('password').value;
 	
 				const data = {
 					username: username,
+					first_name: first_name,
+					last_name: last_name,
 					email: email,
 					password: password
 				};
@@ -145,7 +149,9 @@
 		{% csrf_token %}
         <div class="p-4">
             <input type="text" placeholder="Username" id="username" name="username" class="w-full bg-input text-secondary-foreground border border-primary rounded-lg p-2 focus:outline-none focus:ring focus:ring-primary mb-4">
-            <input type="email" placeholder="Email" id="email" name="email" class="w-full bg-input text-secondary-foreground border border-primary rounded-lg p-2 focus:outline-none focus:ring focus:ring-primary mb-4">
+            <input type="text" placeholder="First Name" id="first_name" name="first_name" class="w-full bg-input text-secondary-foreground border border-primary rounded-lg p-2 focus:outline-none focus:ring focus:ring-primary mb-4">
+            <input type="text" placeholder="Last Name" id="last_name" name="last_name" class="w-full bg-input text-secondary-foreground border border-primary rounded-lg p-2 focus:outline-none focus:ring focus:ring-primary mb-4">
+			<input type="email" placeholder="Email" id="email" name="email" class="w-full bg-input text-secondary-foreground border border-primary rounded-lg p-2 focus:outline-none focus:ring focus:ring-primary mb-4">
             <input type="password" placeholder="Password" id="password" name="password" class="w-full bg-input text-secondary-foreground border border-primary rounded-lg p-2 focus:outline-none focus:ring focus:ring-primary mb-4">
             <button class="bg-primary text-primary-foreground w-full py-2 rounded-lg">Sign Up</button>
         </div>
