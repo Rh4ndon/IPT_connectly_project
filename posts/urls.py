@@ -1,10 +1,13 @@
 from django.urls import path
 from . import views
-from .views import UserListCreate, PostListCreate, CommentListCreate, LikeListCreate
+from .views import UserListCreate, PostListCreate, CommentListCreate, LikeListCreate, GoogleLoginCallback
 from rest_framework.authtoken.views import obtain_auth_token
+from django.urls import include, path, re_path
+
+
+
 
 urlpatterns = [
-  
     # For Index
     path('', views.index, name='index'),
     # For GET users
@@ -44,6 +47,11 @@ urlpatterns = [
     
     # Token URL
     path('api-token-auth/', obtain_auth_token, name='api-token-auth'),
+    
+    
+    
+    
+    
     
 
 ]

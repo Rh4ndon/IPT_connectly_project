@@ -70,15 +70,21 @@
 			});
 			*/
 
+			// store Token in localStorage
+			/*
+			function storeToken(token) {
+				localStorage.setItem('authToken', token);
+			}
+				*/
 
 			function logout() {
 				const token = localStorage.getItem('authToken');  // Assuming you store the token in localStorage
-			  
+			  /*
 				if (!token) {
 				  alert('No token found! Please log in first.');
 				  return;
 				}
-			  
+			  */
 				fetch('/posts/logout/', {  // Change the URL to your actual logout endpoint
 				  method: 'POST',
 				  headers: {
@@ -105,6 +111,7 @@
 			  }
 
 			  // Check token on page load
+			  /*
 			  window.addEventListener('load', function() {
 				const token = localStorage.getItem('authToken');
 				if (!token) {
@@ -112,9 +119,12 @@
 				  window.location.href = '/';
 				}
 			  })
+				*/
+				
 
 			  
 		</script>
+
 		<style type="text/tailwindcss">
 			@layer base {
 				:root {
@@ -236,6 +246,8 @@
 	  mobileMenu.classList.add('hidden');
 	  menuBtn.classList.remove('hidden');
 	});
+
+	
   </script>
   </body>
 </html>

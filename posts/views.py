@@ -1,6 +1,8 @@
 import json
+from venv import logger
 from django.shortcuts import render
 from django.http import JsonResponse
+from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -23,11 +25,97 @@ from .factory.comment_factory import CommentFactory
 from .factory.like_factory import LikeFactory
 from .logger_singleton import LoggerSingleton
 from .config_manager import ConfigManager
+from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
+from allauth.socialaccount.providers.oauth2.client import OAuth2Client
+from dj_rest_auth.registration.views import SocialLoginView
+from django.conf import settings
+from urllib.parse import urljoin
+import requests
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.response import Response
+import logging
+from .utils import get_tokens_for_user  # Import the function
+
+
+
+logger = logging.getLogger(__name__)
+
+
+
+class GoogleLoginCallback(APIView):
+    def get(self, request, *args, **kwargs):
+        code = request.GET.get("code")
+
+        if not code:
+            return Response({"error": "Authorization code not found"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Prepare data for token exchange
+        token_endpoint = "https://oauth2.googleapis.com/token"
+        data = {
+            "code": code,
+            "client_id": settings.GOOGLE_OAUTH_CLIENT_ID,  # Your Google OAuth client ID
+            "client_secret": settings.GOOGLE_OAUTH_CLIENT_SECRET,  # Your Google OAuth client secret
+            "redirect_uri": settings.GOOGLE_OAUTH_CALLBACK_URL,  # Your callback URL
+            "grant_type": "authorization_code",
+        }
+
+        # Make a POST request to Google's token endpoint
+        response = requests.post(token_endpoint, data=data)
+        logger.info(f"Token exchange response: {response.status_code}, {response.json()}")
+
+        if response.status_code == 200:
+            # Successfully exchanged code for tokens
+            token_data = response.json()
+            id_token_str = token_data.get("id_token")  # Use the ID token instead of access token
+
+            # Log the ID token for debugging
+            logger.info(f"ID token: {id_token_str}")
+
+            # Use the ID token to authenticate the user
+            user = authenticate(request, id_token_str=id_token_str, backend='posts.backends.GoogleOAuth2Backend')
+            if user:
+                # Log the user in using Django's login() function
+                login(request, user)
+
+                # Generate tokens for your app (if using JWT)
+                tokens = get_tokens_for_user(user)
+                
+                # Logs the tokens for debugging
+                logger.info(f"Generated tokens: {tokens}")
+
+                # Redirect to the home page
+                return redirect('/posts/home/')                
+
+            else:
+                logger.error("Authentication failed: User not found or could not be created")
+                return Response({"error": "Authentication failed"}, status=status.HTTP_401_UNAUTHORIZED)
+        else:
+            # Handle errors
+            logger.error(f"Token exchange failed: {response.json()}")
+            return Response(response.json(), status=response.status_code)
+    
+
+class GoogleLogin(SocialLoginView):
+    adapter_class = GoogleOAuth2Adapter
+    callback_url = settings.GOOGLE_OAUTH_CALLBACK_URL
+    client_class = OAuth2Client
 
 
 # Index View
-def index(request):
-    return render(request, 'index.html')
+def index(request, *args, **kwargs):
+    
+    if request.user.is_authenticated:
+        return redirect('/posts/home/')  # Redirect to home if authenticated
+    else:
+        return render(
+            request, 
+            'index.html',
+            {
+                "google_callback_uri": settings.GOOGLE_OAUTH_CALLBACK_URL,
+                "google_client_id": settings.GOOGLE_OAUTH_CLIENT_ID,
+            },
+        )
 
 # Sign Up View
 def sign_up(request):
@@ -96,7 +184,7 @@ def get_posts(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 
-# Login
+# Old Login
 @csrf_exempt
 def login_view(request):
     logger = LoggerSingleton().get_logger()
