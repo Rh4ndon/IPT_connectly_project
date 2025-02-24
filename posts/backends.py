@@ -8,11 +8,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 User = get_user_model()
-from google.oauth2 import id_token
-from google.auth.transport import requests as google_requests
 
-from google.oauth2 import id_token
-from google.auth.transport import requests as google_requests
 
 class GoogleOAuth2Backend(BaseBackend):
     def authenticate(self, request, id_token_str=None, **kwargs):
@@ -35,7 +31,13 @@ class GoogleOAuth2Backend(BaseBackend):
 
             # Get or create the user
             user, created = User.objects.get_or_create(email=email)
+
+            # Update user details from Google profile
             if created:
+                user.username = email  # Use email as username
+                user.first_name = id_info.get('given_name', '')
+                user.last_name = id_info.get('family_name', '')
+                user.save()
                 logger.info(f"New user created: {user}")
             else:
                 logger.info(f"Existing user logged in: {user}")

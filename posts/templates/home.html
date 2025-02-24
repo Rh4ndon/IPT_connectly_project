@@ -178,7 +178,7 @@
 		<div class="flex items-center justify-between w-full">
 			<div class="flex items-center">
 				<img class="w-8 h-8 rounded-full" src="https://placehold.co/30x30" alt="User Avatar" />
-				<h3 class="ml-2 font-bold">{{ user.username }}</h3>
+				<h3 class="ml-2 font-bold">{% if user.email %}{{ user.email }}{% else %}{{ user.username }}{% endif %}</h3>
 			</div>
 		 
 		  <button id="menuBtn" class="block md:hidden text-primary-foreground">
