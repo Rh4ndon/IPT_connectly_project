@@ -16,7 +16,7 @@ from rest_framework.authtoken.models import Token
 from django.db import IntegrityError
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.permissions import IsAuthenticated
-from .permissions import IsPostAuthor
+from .permissions import IsPostAuthor, IsAdminUser, IsGuest, IsUser
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect
 from django.contrib.auth import authenticate, login, logout
@@ -36,6 +36,9 @@ from rest_framework import status
 from rest_framework.response import Response
 import logging
 from .utils import get_tokens_for_user  # Import the function
+from django.contrib.auth.models import Group
+from django.db.models import Q, Prefetch
+from django.core.cache import cache
 
 
 
@@ -317,6 +320,11 @@ class UserListCreate(APIView):
         data['password'] = make_password(data['password'])
         
         user = User.objects.create_user(**data)
+        
+        # Add the user to the "User" group
+        user_group, created = Group.objects.get_or_create(name='User')
+        user.groups.add(user_group)
+        
         return Response(
             {
                 'status': 'success',
@@ -395,17 +403,28 @@ class PostListCreate(APIView):
                     'username': post.author.username,
                     'email': post.author.email                   
                 },
+                'private': post.private,
                 'created_at': post.created_at,
                 'comments_count': comments_count,
                 'likes_count': likes_count
             }
-
-            return Response(
+            if post.private == True and post.author != request.user:
+                return Response(
+                {
+                    'status': 'failure',
+                    'error': 'You are not authorized to view this post',
+                    'code': status.HTTP_403_FORBIDDEN
+                }
+            ) 
+            else:
+                return Response(
                 {
                     'status': 'success',
                     'post': post_data,
                     'code': status.HTTP_200_OK
                 })
+
+
         except Post.DoesNotExist:
             return Response(
                 {
@@ -439,6 +458,7 @@ class PostListCreate(APIView):
                 post_type=data['post_type'],
                 title=data['title'],
                 content=data.get('content', ''),
+                private=data.get('private'),
                 metadata=data.get('metadata', {})
             )
             post.save()
@@ -480,6 +500,7 @@ class PostListCreate(APIView):
             post_type=data['post_type'],
             title=data['title'],
             content=data.get('content', ''),
+            private=data.get('private'),
             metadata=data.get('metadata', {})
         )
         post.id = pk  # Ensure the post ID remains the same
@@ -506,12 +527,13 @@ class PostListCreate(APIView):
                 }
             )
         
-        # Check if the authenticated user is the author
-        if post.author != request.user:
+        # Check if the authenticated user is in the "Admin" group
+        is_admin = request.user.groups.filter(name='Admin').exists()
+        if not is_admin:
             return Response(
                 {
                     'status': 'failure',
-                    'error': 'You are not authorized to delete this post',
+                    'error': 'You are not authorized to delete this post. Only Admins can delete posts.',
                     'code': status.HTTP_403_FORBIDDEN
                 }
             )
@@ -649,16 +671,16 @@ class CommentListCreate(APIView):
                 }
             )
         
-        # Check if the authenticated user is the author of the comment
-        if comment.author != request.user:
+        # Check if the authenticated user is in the "Admin" group
+        is_admin = request.user.groups.filter(name='Admin').exists()
+        if not is_admin:
             return Response(
                 {
                     'status': 'failure',
-                    'error': 'You are not authorized to delete this comment',
+                    'error': 'You are not authorized to delete this comment. Only Admins can delete comments.',
                     'code': status.HTTP_403_FORBIDDEN
                 }
             )
-
         comment.delete()
         return Response(
             {
@@ -720,12 +742,13 @@ class LikeListCreate(APIView):
                 }
             )
         
-        # Check if the authenticated user is the author of the like
-        if like.author != request.user:
+        # Check if the authenticated user is in the "Admin" group
+        is_admin = request.user.groups.filter(name='Admin').exists()
+        if not is_admin:
             return Response(
                 {
                     'status': 'failure',
-                    'error': 'You are not authorized to delete this like',
+                    'error': 'You are not authorized to delete this like. Only Admins can delete likes.',
                     'code': status.HTTP_403_FORBIDDEN
                 }
             )
@@ -746,6 +769,14 @@ class NewsFeed(APIView):
 
     def get(self, request):
         try:
+            # Generate a unique cache key for the user and request parameters
+            cache_key = f'news_feed_user_{request.user.id}_page_{request.GET.get("page", 1)}_page_size_{request.GET.get("page_size", 5)}_liked_by_user_{request.GET.get("liked_by_user", "false")}'
+            cached_data = cache.get(cache_key)
+
+            # Return cached data if it exists
+            if cached_data:
+                return Response(cached_data)
+
             # Get query parameters for pagination and filtering
             page = int(request.GET.get('page', 1))
             page_size = int(request.GET.get('page_size', 5))
@@ -753,12 +784,21 @@ class NewsFeed(APIView):
 
             # Get all posts or filter by posts liked by the user
             if liked_by_user:
-                posts = Post.objects.filter(like__author=request.user).distinct()
+                posts = Post.objects.filter(likes__author=request.user).distinct()
             else:
                 posts = Post.objects.all()
 
+            # Exclude private posts where the author is not the current user
+            posts = posts.exclude(Q(private=True) & ~Q(author=request.user))
+
             # Sort posts by creation date
             posts = posts.order_by('-created_at')
+
+            # Optimize database queries
+            posts = posts.select_related('author').prefetch_related(
+                Prefetch('comments', queryset=Comment.objects.select_related('author')),
+                Prefetch('likes')
+            )
 
             # Paginate the results
             start = (page - 1) * page_size
@@ -767,8 +807,8 @@ class NewsFeed(APIView):
 
             posts_data = []
             for post in paginated_posts:
-                comments_count = Comment.objects.filter(post=post).count()
-                likes_count = Like.objects.filter(post=post).count()
+                comments_count = post.comments.count()
+                likes_count = post.likes.count()
 
                 # Get author details
                 author = {
@@ -780,9 +820,8 @@ class NewsFeed(APIView):
                 }
 
                 # Get comments with author details
-                comments = Comment.objects.filter(post=post)
                 comments_data = []
-                for comment in comments:
+                for comment in post.comments.all():
                     comment_author = {
                         'id': comment.author.id,
                         'username': comment.author.username,
@@ -808,15 +847,19 @@ class NewsFeed(APIView):
                 }
                 posts_data.append(post_data)
 
-            return Response(
-                {
-                    'status': 'success',
-                    'posts': posts_data,
-                    'page': page,
-                    'page_size': page_size,
-                    'total_posts': posts.count(),
-                    'code': status.HTTP_200_OK
-                })
+            response_data = {
+                'status': 'success',
+                'posts': posts_data,
+                'page': page,
+                'page_size': page_size,
+                'total_posts': posts.count(),
+                'code': status.HTTP_200_OK
+            }
+
+            # Cache the response for 15 minutes
+            cache.set(cache_key, response_data, 60 * 15)
+
+            return Response(response_data)
         except Exception as e:
             return Response(
                 {

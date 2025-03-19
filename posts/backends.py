@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 import logging
+from django.contrib.auth.models import Group
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,10 @@ class GoogleOAuth2Backend(BaseBackend):
                 user.last_name = id_info.get('family_name', '')
                 user.save()
                 logger.info(f"New user created: {user}")
+                
+                # Add the user to the "User" group
+                user_group, created = Group.objects.get_or_create(name='User')
+                user.groups.add(user_group)
             else:
                 logger.info(f"Existing user logged in: {user}")
 
